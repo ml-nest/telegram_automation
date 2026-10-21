@@ -2,7 +2,7 @@ name: run main.py
 
 on:
   schedule:
-    - cron: '* * * * *'
+    - cron: '*/2 * * * *'
 
 jobs:
   build:
@@ -24,8 +24,8 @@ jobs:
           
       - name: execute py script # run main.py
         env:
-          API_HASH: ${{ secrets.API_HASH}}
-          API_ID: ${{ secrets.API_ID}}
+          API_HASH: ${{ secrets.API_HASH }}
+          API_ID: ${{ secrets.API_ID }}
         run: python main_fresh.py
           
       - name: commit files
