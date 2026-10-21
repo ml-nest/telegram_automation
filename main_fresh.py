@@ -174,8 +174,8 @@ def main():
     global API_ID, API_HASH
 
     load_dotenv(BASE_DIR / ".env")
-    api_id = os.getenv("api_id")
-    API_HASH = os.getenv("api_hash")
+    api_id = os.environ["API_ID"]
+    API_HASH = os.environ["API_HASH"]
     if not api_id or not API_HASH:
         raise SystemExit("Set api_id and api_hash in .env or your environment.")
     try:
