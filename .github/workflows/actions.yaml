@@ -2,11 +2,14 @@ name: run main.py
 
 on:
   schedule:
-    - cron: '*/2 * * * *'
+    - cron: '0 * * * *'
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Explicitly grant read/write access to the repository contents
+    permissions:
+      contents: write
     steps:
 
       - name: checkout repo content
