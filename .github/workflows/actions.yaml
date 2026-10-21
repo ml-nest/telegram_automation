@@ -25,7 +25,7 @@ jobs:
       - name: execute py script # run main.py
         env:
           API_HASH: ${{ secrets.API_HASH}}
-          API_ID: ${{ secrets.API_ID }}
+          API_ID: ${{ secrets.API_ID}}
         run: python main_fresh.py
           
       - name: commit files
