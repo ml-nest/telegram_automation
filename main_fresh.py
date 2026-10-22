@@ -5,24 +5,26 @@ from pathlib import Path
 from telethon.sync import TelegramClient
 from dotenv import load_dotenv
 from cleaner import clean_movie_series_name, normalize_for_dedupe
+from telethon import functions
+
 
 BASE_DIR = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 
 
-source_chats = {
-    -1003779577799: "old movies",
-    -1003799601277: "ns ... 25",
-    -1002330857007: "group",
-    -1003811318800: "cmzone 6",
-    -1004304419271: "CM pvt 8",
-    -1004416602724: "new channel",
-    -1003919673269: "NS 27",
-    -1003988245792: "NS 28", 
-    -1003997221381: "NS 39",
-    -1003860190592: "venom",
-    -1003473595970: "NS 40",
-    -1004369280460: "NS 40",
-}
+# source_chats = {
+#     -1003779577799: "old movies",
+#     -1003799601277: "ns ... 25",
+#     -1002330857007: "group",
+#     -1003811318800: "cmzone 6",
+#     -1004304419271: "CM pvt 8",
+#     -1004416602724: "new channel",
+#     -1003919673269: "NS 27",
+#     -1003988245792: "NS 28", 
+#     -1003997221381: "NS 39",
+#     -1003860190592: "venom",
+#     -1003473595970: "NS 40",
+#     -1004369280460: "NS 40",
+# }
 destination_chat_id = -1001490981868 # Movies
 
 
@@ -186,6 +188,23 @@ def main():
     csv_file = BASE_DIR / "chat_messages.csv"
     if not csv_file.is_file():
         raise SystemExit(f"CSV file not found: {csv_file}")
+    
+
+    with TelegramClient(str(BASE_DIR / "session"), API_ID, API_HASH) as client:
+        result = client(functions.messages.GetDialogFiltersRequest())
+    
+        clipmate = next(
+            (
+                folder for folder in result.filters
+                if getattr(getattr(folder, "title", None), "text", None) == "Clipmate"
+            ),
+            None,
+        )
+    
+        source_chat_id = {}
+        for peer in clipmate.include_peers:
+            source_chat_id[int('-100'+str(peer.channel_id))] = 'ch'
+
 
     for source_chat_id, source_chat_name in source_chats.items():
         print(f"Processing {source_chat_name} ({source_chat_id})")
