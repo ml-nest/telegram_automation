@@ -201,9 +201,9 @@ def main():
             None,
         )
     
-        source_chat_id = {}
+        source_chats = {}
         for peer in clipmate.include_peers:
-            source_chat_id[int('-100'+str(peer.channel_id))] = 'ch'
+            source_chats[int('-100'+str(peer.channel_id))] = 'ch'
 
 
     for source_chat_id, source_chat_name in source_chats.items():
