@@ -10,27 +10,7 @@ from telethon import functions
 
 BASE_DIR = Path(__file__).resolve().parent if "__file__" in globals() else Path.cwd()
 
-
-# source_chats = {
-#     -1003779577799: "old movies",
-#     -1003799601277: "ns ... 25",
-#     -1002330857007: "group",
-#     -1003811318800: "cmzone 6",
-#     -1004304419271: "CM pvt 8",
-#     -1004416602724: "new channel",
-#     -1003919673269: "NS 27",
-#     -1003988245792: "NS 28", 
-#     -1003997221381: "NS 39",
-#     -1003860190592: "venom",
-#     -1003473595970: "NS 40",
-#     -1004369280460: "NS 40",
-# }
 destination_chat_id = -1001490981868 # Movies
-
-
-
-
-
 
 def process_channel_to_chat(
     source_chat_id,
@@ -76,7 +56,7 @@ def process_channel_to_chat(
         for frmts in ['1080p', '720p']:
             latest_source_by_name = {}
             for source_message in client.iter_messages(source, limit=limit):
-                if source_message.text and frmts in source_message.text:
+                if source_message.video and source_message.text and frmts in source_message.text:
                     if source_message.id in forwarded_ids:
                         continue
 
@@ -137,14 +117,11 @@ def process_channel_to_chat(
             #     return
 
             for source_message, cleaned_name, source_ids in work:
-                if source_message.media:
-                    sent = client.send_file(
-                        destination,
-                        source_message.media,
-                        caption=cleaned_name,
-                    )
-                else:
-                    sent = client.send_message(destination, cleaned_name)
+                sent = client.send_file(
+                    destination,
+                    source_message.video,
+                    caption=cleaned_name,
+                )
 
                 if isinstance(sent, list):
                     sent = sent[0]
@@ -168,8 +145,6 @@ def process_channel_to_chat(
 
             save_forwarded_ids()
             print(f"Finished processing {len(work)} source posts.")
-        
-        
         
 
 def main():
@@ -217,7 +192,6 @@ def main():
             )
         except:
             pass
-
 
 if __name__ == "__main__":
     main()
