@@ -17,7 +17,7 @@ def process_channel_to_chat(
     destination_chat_id,
     csv_file,
     limit):
-    fieldnames = ["message_id", "message", "cleaned_name", "source_message_id"]
+    fieldnames = ["message_id", "cleaned_name"]
     forwarded_ids_file = BASE_DIR / "logs" / f"forwarded_source_{source_chat_id}.json"
     if os.path.exists(forwarded_ids_file):
         with open(forwarded_ids_file, "r", encoding="utf-8") as file:
@@ -29,7 +29,7 @@ def process_channel_to_chat(
         with open(forwarded_ids_file, "w", encoding="utf-8") as file:
             json.dump(sorted(forwarded_ids), file)
 
-    # Keep existing CSV rows; older CSVs may not have source_message_id yet.
+    # Keep existing CSV rows while normalizing them to the current schema.
     with open(csv_file, "r", newline="", encoding="utf-8-sig") as file:
         reader = csv.DictReader(file)
         required = {"message_id", "cleaned_name"}
@@ -41,9 +41,7 @@ def process_channel_to_chat(
         rows = [
             {
                 "message_id": row["message_id"],
-                "message": row.get("message", ""),
                 "cleaned_name": row["cleaned_name"],
-                "source_message_id": row.get("source_message_id", ""),
             }
             for row in reader
         ]
@@ -84,15 +82,6 @@ def process_channel_to_chat(
                     if normalize_for_dedupe(row["cleaned_name"]) == key
                 ]
 
-                # Already processed this exact source post.
-                if any(
-                    row["source_message_id"]
-                    and row["source_message_id"] == str(source_message.id)
-                    for row in matching_rows
-                ):
-                    forwarded_ids.update(source_data["source_ids"])
-                    continue
-
                 # A matching cleaned name is already represented in the destination.
                 # Mark the source posts as handled without replacing that entry.
                 if matching_rows:
@@ -128,9 +117,7 @@ def process_channel_to_chat(
 
                 rows.append({
                     "message_id": str(sent.id),
-                    "message": source_message.message or "",
                     "cleaned_name": cleaned_name,
-                    "source_message_id": str(source_message.id),
                 })
 
                 with open(csv_file, "w", newline="", encoding="utf-8") as file:

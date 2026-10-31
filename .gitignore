@@ -2,3 +2,6 @@
 .vscode/
 .venv/
 __pycache__/
+delete_destination_messages.py
+export_destination_messages.py
+main.py
