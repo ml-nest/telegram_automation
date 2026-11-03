@@ -17,7 +17,7 @@ def process_channel_to_chat(
     destination_chat_id,
     csv_file,
     limit):
-    fieldnames = ["message_id", "cleaned_name"]
+    fieldnames = ["message_id", "file_name", "cleaned_name"]
     forwarded_ids_file = BASE_DIR / "logs" / f"forwarded_source_{source_chat_id}.json"
     if os.path.exists(forwarded_ids_file):
         with open(forwarded_ids_file, "r", encoding="utf-8") as file:
@@ -32,15 +32,16 @@ def process_channel_to_chat(
     # Keep existing CSV rows while normalizing them to the current schema.
     with open(csv_file, "r", newline="", encoding="utf-8-sig") as file:
         reader = csv.DictReader(file)
-        required = {"message_id", "cleaned_name"}
+        required = {"message_id", "file_name", "cleaned_name"}
         if not required.issubset(reader.fieldnames or []):
             raise ValueError(
-                f"{csv_file} must contain message_id and cleaned_name columns"
+                f"{csv_file} must contain message_id, file_name, and cleaned_name columns"
             )
 
         rows = [
             {
                 "message_id": row["message_id"],
+                "file_name": row["file_name"],
                 "cleaned_name": row["cleaned_name"],
             }
             for row in reader
@@ -50,98 +51,118 @@ def process_channel_to_chat(
         source = client.get_entity(source_chat_id)
         destination = client.get_entity(destination_chat_id)
 
-        # iter_messages yields newest first; keep the newest source post per name.
-        for frmts in ['1080p', '720p']:
-            latest_source_by_name = {}
-            for source_message in client.iter_messages(source, limit=limit):
-                if source_message.video and source_message.text and frmts in source_message.text:
-                    if source_message.id in forwarded_ids:
-                        continue
+        # iter_messages yields newest first, so the first entry for a title is its newest.
+        candidates_by_resolution = {"1080p": {}, "720p": {}}
+        for source_message in client.iter_messages(source, limit=limit):
+            message_text = source_message.text or ""
+            if not source_message.video or not message_text:
+                continue
 
-                    cleaned_name = clean_movie_series_name(source_message.message or "")
-                    if not cleaned_name:
-                        forwarded_ids.add(source_message.id)
-                        continue
+            file_name = source_message.file.name if source_message.file else ""
+            if "#sample" in message_text.casefold():
+                forwarded_ids.add(source_message.id)
+                continue
 
-                    key = normalize_for_dedupe(cleaned_name)
-                    if key not in latest_source_by_name:
-                        latest_source_by_name[key] = {
-                            "message": source_message,
-                            "cleaned_name": cleaned_name,
-                            "source_ids": [],
-                        }
-                    latest_source_by_name[key]["source_ids"].append(source_message.id)
+            resolution = next(
+                (value for value in candidates_by_resolution if value in message_text.lower()),
+                None,
+            )
+            if resolution is None or source_message.id in forwarded_ids:
+                continue
 
-            work = []
-            skipped_existing_names = 0
-            for key, source_data in latest_source_by_name.items():
+            cleaned_name = clean_movie_series_name(message_text)
+            if not cleaned_name:
+                forwarded_ids.add(source_message.id)
+                continue
+
+            key = normalize_for_dedupe(cleaned_name)
+            candidates = candidates_by_resolution[resolution]
+            if key not in candidates:
+                candidates[key] = {
+                    "message": source_message,
+                    "cleaned_name": cleaned_name,
+                    "source_ids": [],
+                }
+            candidates[key]["source_ids"].append(source_message.id)
+
+        seen_file_names = {
+            row["file_name"] for row in rows if row["file_name"]
+        }
+        higher_resolution_name_keys = set()
+        work = []
+        skipped_filename_duplicates = 0
+        skipped_lower_resolutions = 0
+
+        for resolution, candidates in candidates_by_resolution.items():
+            for key, source_data in candidates.items():
                 source_message = source_data["message"]
                 cleaned_name = source_data["cleaned_name"]
-                matching_rows = [
-                    row for row in rows
-                    if normalize_for_dedupe(row["cleaned_name"]) == key
-                ]
+                file_name = source_message.file.name if source_message.file else ""
 
-                # A matching cleaned name is already represented in the destination.
-                # Mark the source posts as handled without replacing that entry.
-                if matching_rows:
-                    skipped_existing_names += 1
+                if resolution == "1080p":
+                    higher_resolution_name_keys.add(key)
+                elif key in higher_resolution_name_keys:
+                    skipped_lower_resolutions += 1
                     forwarded_ids.update(source_data["source_ids"])
-                    save_forwarded_ids()
                     continue
 
+                # A matching filename is already represented in the destination.
+                if file_name and file_name in seen_file_names:
+                    skipped_filename_duplicates += 1
+                    forwarded_ids.update(source_data["source_ids"])
+                    continue
+
+                if file_name:
+                    seen_file_names.add(file_name)
                 work.append((
                     source_message,
                     cleaned_name,
+                    file_name,
                     source_data["source_ids"],
                 ))
 
-            print(
-                f"Plan: {len(work)} source posts to send; "
-                f"{skipped_existing_names} already represented by name (skipped)."
+        print(
+            f"Plan: {len(work)} source posts to send; "
+            f"{skipped_filename_duplicates} filename duplicates skipped; "
+            f"{skipped_lower_resolutions} lower-resolution duplicates skipped."
+        )
+
+        for source_message, cleaned_name, file_name, source_ids in work:
+            sent = client.send_file(
+                destination,
+                source_message.video,
+                caption=cleaned_name,
             )
 
-            # if input("Type RUN to continue: ") != "RUN":
-            #     print("Cancelled; no messages were changed.")
-            #     return
+            if isinstance(sent, list):
+                sent = sent[0]
 
-            for source_message, cleaned_name, source_ids in work:
-                sent = client.send_file(
-                    destination,
-                    source_message.video,
-                    caption=cleaned_name,
-                )
+            rows.append({
+                "message_id": str(sent.id),
+                "file_name": file_name,
+                "cleaned_name": cleaned_name,
+            })
+            with open(csv_file, "w", newline="", encoding="utf-8") as file:
+                writer = csv.DictWriter(file, fieldnames=fieldnames)
+                writer.writeheader()
+                writer.writerows(rows)
 
-                if isinstance(sent, list):
-                    sent = sent[0]
-
-                rows.append({
-                    "message_id": str(sent.id),
-                    "cleaned_name": cleaned_name,
-                })
-
-                with open(csv_file, "w", newline="", encoding="utf-8") as file:
-                    writer = csv.DictWriter(file, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(rows)
-
-                forwarded_ids.update(source_ids)
-                save_forwarded_ids()
-
-                print(f"forwarded: source {source_message.id} -> destination {sent.id}")
-
+            forwarded_ids.update(source_ids)
             save_forwarded_ids()
-            print(f"Finished processing {len(work)} source posts.")
+            print(f"forwarded: source {source_message.id} -> destination {sent.id}")
+
+        save_forwarded_ids()
+        print(f"Finished processing {len(work)} source posts.")
         
 
 def main():
     global API_ID, API_HASH
 
     load_dotenv(BASE_DIR / ".env")
-    api_id = os.environ["API_ID"]
-    API_HASH = os.environ["API_HASH"]
+    api_id = os.getenv("API_ID")
+    API_HASH = os.getenv("API_HASH")
     if not api_id or not API_HASH:
-        raise SystemExit("Set api_id and api_hash in .env or your environment.")
+        raise SystemExit("Set API_ID and API_HASH in .env or your environment.")
     try:
         API_ID = int(api_id)
     except ValueError:
@@ -162,6 +183,8 @@ def main():
             ),
             None,
         )
+        if clipmate is None:
+            raise SystemExit("Telegram folder 'Clipmate' was not found.")
     
         source_chats = {}
         for peer in clipmate.include_peers:
@@ -177,8 +200,8 @@ def main():
                 csv_file=csv_file,
                 limit=30000,
             )
-        except:
-            pass
+        except Exception as error:
+            print(f"Failed processing source {source_chat_id}: {error}")
 
 if __name__ == "__main__":
     main()
